@@ -99,21 +99,41 @@ def eval(x, env=global_env):
     """
     Evaluate an expression in an environment.
     """
-    if isinstance(x, Symbol):
+    if isinstance(x, Symbol):  # variable reference
         return env[x]
-    elif not isinstance(x, List):
+    elif not isinstance(x, List):  # constant literal
         return x
-    elif x[0] == 'if':
+    elif x[0] == 'if':  # conditional
         (_, test, conseq, alt) = x
         exp = (conseq if eval(test, env) else alt)
         return eval(exp, env)
-    elif x[0] == 'define':
+    elif x[0] == 'define':  # definition
         (_, var, exp) = x
         env[var] = eval(exp, env)
-    else:
+    else:    # procedure call
         proc = eval(x[0], env)
         args = [eval(arg, env) for arg in x[1:]]
         return proc(*args)
+
+
+def repl(prompt='lis.py> '):
+    """
+    A prompt-read-eval-print loop.
+    """
+    while True:
+        val = eval(parse(input(prompt)))
+        if val is not None:
+            print(schemestr(val))
+
+
+def schemestr(exp):
+    """
+    Convert a Python object back into as Scheme-readable string.
+    """
+    if isinstance(exp, list):
+        return '(' + ''.join(map(schemestr, exp)) + ')'
+    else:
+        return str(exp)
 
 
 def main():
