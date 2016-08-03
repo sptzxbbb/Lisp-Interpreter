@@ -174,8 +174,6 @@ def schemestr(exp):
         return str(exp)
 
 
-
-
 def main():
     "Only for test"
     program = "(define r 10)"

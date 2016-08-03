@@ -1,2 +1,2 @@
 # Lisp-Interpreter
-A lisp interpreter to be implemented in python
+'A lisp(Scheme subset) interpreter in Python'
