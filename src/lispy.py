@@ -179,16 +179,25 @@ class Env(dict):
     An environment: a dict of {'var': val} pairs, with an outer Env.
     """
     def __init__(self, parms=(), args=(), outer=None):
-        self.update(zip(parms, args))
+        # Bind parm list to corresponding args, or single parm to list of args
         self.outer = outer
+        if isinstance(parms, Symbol):
+            self.update({parms:list(args)})
+        else:
+            if len(args) != len(parms):
+                raise TypeError('expected %s, given %s, ' % (to_string(parms), to_string(args)))
+        self.update(zip(parms, args))
 
     def find(self, var):
         """
         Find the innermost Env where var appears.
         """
-        if (var not in self) and (self.outer == None):
-            print("%s can't be found" % var)
-        return self if (var in self) else self.outer.find(var)  # There is a potential bug
+        if var in self:
+            return self
+        elif self.outer is None:
+            raise LookupError(var)
+        else:
+            return self.outer.find(var)
 
 def cons(x, y):
     return [x] + y
@@ -226,7 +235,7 @@ def standard_env():
     return env
 
 global_env = standard_env()
-fsdfsdffsdf
+
 
 # eval (tail recursive)
 
@@ -326,6 +335,23 @@ eval(parse("""(begin
 ;; More macros can go here
 
 )"""))
+
+
+def callcc(proc):
+    """
+    Call proc with current continuation; escape only
+    """
+    ball = RuntimeWarning("Sorry, can't continue this continuation any longer.")
+    def throw(retval):
+        ball.retval = retval;
+        raise ball
+    try:
+        return proc(throw)
+    except RuntimeWarning as w:
+        if w is ball:
+            return ball.retval
+        else:
+            raise w
 
 
 if __name__ == '__main__':
