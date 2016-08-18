@@ -3,18 +3,11 @@
 
 'A lisp(Scheme subset) interpreter in Python'
 
-# 数据的内部表示，数据的操作，读写语法
-"""
-ports: Ouput ports用Python file objects表示， input ports用一个类InputPort包装一个file object和记录已读取文本的最近一行。这很方便，因为Scheme的input ports需要读入表达式和原生字符和我们的Tokennizer作用于一整行，不是单独的字符。
-
-'exp: (quote exp)
-`exp
-,exp: insert the value of exp
-@exp: 
-"""
-
+import operator as op
 import re
 import sys
+import math
+# Symbol, Procedure, classes
 
 class Symbol(str):
     pass
@@ -29,9 +22,26 @@ def Sym(s, symbol_table={}):
     return symbol_table[s]
 
 
-_quote, _if, _set, _define, _lambda, _begin, _definemacro = map(Sym, "quote if set! define lambda begin define-macro".split())
+_quote, _if, _set, _define, _lambda, _begin, _definemacro = map(Sym,
+                                                                 "quote if set! define lambda begin define-macro".split())
 
-_quasiquote, _unquote, _unquotesplicing = map(Sym, "quote if set! define lambda begin define-macro".split())
+_quasiquote, _unquote, _unquotesplicing = map(Sym,
+                                              "quasiquote unquote unquote-splicing".split())
+
+
+# parse, read and user interaction
+
+def tokenize(chars):
+    """
+    Convert a string of characters into a list tokens.
+    """
+    return chars.replace('(', ' ( ').replace(')', ' ) ').split()
+
+def parse(inport):
+    """
+    Read a Scheme expression for a string.
+    """
+    return read(inport)
 
 
 eof_object = Symbol('#<eof-object>')
@@ -40,10 +50,7 @@ class InPort():
     """
     An input port. Retains a line of chars.
     """
-    tokenizer = r'''
-    \s*(,@ | [('`,)] | "(?:[\\]. | [^\\"])*" | ;.* | [^\s('"`,;)]*)(.*)
-    '''
-    # ,@   ' ` ,        "(
+    tokenizer = r'''\s*(,@|[('`,)]|"(?:[\\].|[^\\"])*"|;.*|[^\s('"`,;)]*)(.*)'''
     def __init__(self, file):
         self.file = file
         self.line = ''
@@ -58,7 +65,7 @@ class InPort():
             if self.line == '':
                 return eof_object
             token, self.line = re.match(InPort.tokenizer, self.line).groups()
-            if token != '' and not token.startwith(';'):
+            if token != '' and not token.startswith(';'):
                 return token
 
 def readchar(inport):
@@ -122,7 +129,7 @@ def atom(token):
 
 def to_string(x):
     """
-    Convert a python object back into a Liso-readable string.
+    Convert a python object back into a Lisp-readable string.
     """
     if x is True:
         return '#t'
@@ -146,16 +153,16 @@ def load(filename):
     sys.stderr.write("Lispy version 2.0\n")
     repl(None, InPort(filename), None)
 
-def repl(prompt='listy> ', inport=InPort(sys.stdin), out=sys.stdout):
+def repl(prompt='lispy> ', inport=InPort(sys.stdin), out=sys.stdout):
     """
     A prompt-read-eval-print loop
     """
-    sys.stderr.write("Lispy version 2.0\n")
+    print("Lispy version 2.0")
     while True:
         try:
             if prompt:
-                sys.stderr.write(prompt)
-                x = parse(inport)
+                print(prompt, end='', flush=True)
+            x = parse(inport)
             if x is eof_object:
                 return
             val = eval(x)
@@ -163,6 +170,162 @@ def repl(prompt='listy> ', inport=InPort(sys.stdin), out=sys.stdout):
                 print(out, to_string(val))
         except Exception as e:
             print("%s %s" % (type(e).__name__, e))
+
+
+# Environment class
+
+class Env(dict):
+    """
+    An environment: a dict of {'var': val} pairs, with an outer Env.
+    """
+    def __init__(self, parms=(), args=(), outer=None):
+        self.update(zip(parms, args))
+        self.outer = outer
+
+    def find(self, var):
+        """
+        Find the innermost Env where var appears.
+        """
+        if (var not in self) and (self.outer == None):
+            print("%s can't be found" % var)
+        return self if (var in self) else self.outer.find(var)  # There is a potential bug
+
+def cons(x, y):
+    return [x] + y
+
+def standard_env():
+    """
+    An environment with some Scheme standard procedures.
+    """
+    env = Env()
+    env.update(vars(math))
+    env.update({
+        '+':op.add, '-':op.sub, '*':op.mul, '/':op.truediv,
+        '>':op.gt, '<':op.lt, '>=':op.ge, '<=': op.le, '=':op.eq,
+        'abs': abs,
+        'append': op.add,
+        'begin': lambda *x: x[-1],
+        'car': lambda x: x[0],
+        'cdr': lambda x: x[1:],
+        'cons': lambda x, y: [x] + y,
+        'eq?': op.is_,
+        'equal?': op.eq,
+        'length': len,
+        'list': lambda *x: list(x),
+        'list?': lambda x: isinstance(x, list),
+        'map': map,
+        'max': max,
+        'min': min,
+        'not': op.not_,
+        'null?': lambda x: x == [],
+        'number?': lambda x: isinstance(x, Number),
+        'procedure?': callable,
+        'round': round,
+        'symbol?': lambda x: isinstance(x, Symbol),
+    })
+    return env
+
+global_env = standard_env()
+fsdfsdffsdf
+
+# eval (tail recursive)
+
+# A Scheme List is implemented as a Python list
+List = list
+# A Scheme Number is implemented as a Python int or float
+Number = (int, float)
+
+def eval(x, env=global_env):
+    """
+    Evaluate an expression in environment
+    """
+    while True:
+        if isinstance(x, Symbol):  # variable reference
+            return env.find(x)[x]
+        elif not isinstance(x, List):  # constant literal
+            return x
+        elif x[0] is _quote:  # quotation
+            (_, exp) = x
+            return exp
+        elif x[0] is _if:  # conditional
+            (_, test, conseq, alt) = x
+            x = (conseq if eval(test, env) else alt)
+        elif x[0] is _set:  # assignment
+            (_, var, exp) = x
+            env.find(var)[var] = eval(exp, env)
+            return None
+        elif x[0] is _define:  # definition
+            (_, var, exp) = x
+            env[var] = eval(exp, env)
+            return None
+        elif x[0] is _lambda:  # (lambda (var*) exp)
+            (_, parms, exp) = x
+            return Procedure(parms, exp, env)
+        elif x[0] is _begin:  # (begin exp+)
+            for exp in x[1:-1]:
+                eval(exp, env)
+            x = x[-1]
+        else:  # (proc exp*)
+            exps = [eval(exp, env) for exp in x]
+            proc = exps.pop(0)
+            if isinstance(proc, Procedure):
+                x = proc.exp
+                env = Env(proc.parms, exps, proc.env)
+            else:
+                return proc(*exps)
+
+
+class Procedure():
+    """
+    A user-defined Scheme procedure.
+    """
+    def __init__(self, parms, exp, env):
+        self.parms, self.exp, self.env = parms, exp, env
+
+    def __call__(self, *args):
+        return eval(self.exp, Env(self.parms, args, self.env))
+
+
+# expand
+
+def expand(x, toplevel=False):
+    """
+    Walk tree of x, making optimization/fixes, and signaling Syntax Error.
+    """
+    pass
+
+def require(x, predicate, msg="wrong length"):
+    """
+    Signal a syntax error if predicate is false.
+    """
+    if not predicate:
+        raise SyntaxError(to_string(x) + ": " + msg)
+
+
+
+def let(*args):
+    args = list(args)
+    x = cons(_let, args)
+    require(x, len(args) > 1)
+    bindings, body = args[0], args[1:]
+    require(x, all(isinstance(b, list) and len(b) == 2 and isinstance(b[0], Symbol) for b in bindings), "illegal binding list")
+    vars, vals = zip(*bindings)
+    return [[_lambda, list(vars)] + map(expand, body)] + map(expand, vals)
+
+_append, _cons, _let = map(Sym, "append cons let".split())
+
+macro_table = {_let: let}  # More macros can go here
+
+eval(parse("""(begin
+
+(define-macro and (lambda args
+   (if (null? args) #t
+       (if (= (length args) 1) (car args)
+           `(if ,(car args) (and ,@(cdr args)) #f)))))
+
+;; More macros can go here
+
+)"""))
 
 
 if __name__ == '__main__':
